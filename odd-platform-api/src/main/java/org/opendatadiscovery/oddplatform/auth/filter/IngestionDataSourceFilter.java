@@ -1,6 +1,5 @@
 package org.opendatadiscovery.oddplatform.auth.filter;
 
-import java.nio.file.AccessDeniedException;
 import org.opendatadiscovery.oddplatform.auth.session.SessionConstants;
 import org.opendatadiscovery.oddplatform.repository.reactive.ReactiveCollectorRepository;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -28,15 +27,18 @@ public class IngestionDataSourceFilter extends AbstractIngestionFilter {
             public Flux<DataBuffer> getBody() {
                 return super.getBody().collectList()
                     .flatMapMany(dataBuffer -> {
-                        final String token = resolveToken(exchange.getRequest());
-
-                        return collectorRepository.getByToken(token)
-                            .switchIfEmpty(
-                                Mono.error(new AccessDeniedException("Collector with such token doesn't exist")))
-                            .zipWith(exchange.getSession())
-                            .doOnNext(t -> t.getT2().getAttributes()
-                                .put(SessionConstants.COLLECTOR_ID_SESSION_KEY, t.getT1().getId()))
-                            .flatMapIterable(i -> dataBuffer);
+                        try {
+                            final String token = resolveToken(exchange.getRequest());
+                            return collectorRepository.getByToken(token)
+                                .zipWith(exchange.getSession())
+                                .doOnNext(t -> t.getT2().getAttributes()
+                                    .put(SessionConstants.COLLECTOR_ID_SESSION_KEY, t.getT1().getId()))
+                                .thenMany(Flux.fromIterable(dataBuffer))
+                                .switchIfEmpty(Flux.fromIterable(dataBuffer));
+                        } catch (Exception e) {
+                            // Token is missing or invalid - proceed without authentication
+                            return Flux.fromIterable(dataBuffer);
+                        }
                     });
             }
         };

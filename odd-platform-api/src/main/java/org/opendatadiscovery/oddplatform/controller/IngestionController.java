@@ -48,14 +48,10 @@ public class IngestionController implements IngestionApi {
     public Mono<ResponseEntity<Void>> createDataSource(final Mono<DataSourceList> dataSourceList,
                                                        final ServerWebExchange exchange) {
         final Mono<Long> collectorIdMono = exchange.getSession()
-            .map(ws -> {
-                final Object collectorId = ws.getAttribute(SessionConstants.COLLECTOR_ID_SESSION_KEY);
-                if (collectorId == null) {
-                    throw new IllegalStateException("Collector id is null");
-                }
-                return collectorId;
-            })
-            .cast(Long.class);
+            .mapNotNull(ws -> ws.getAttribute(SessionConstants.COLLECTOR_ID_SESSION_KEY))
+            .cast(Long.class)
+            .switchIfEmpty(Mono.error(
+                new BadUserRequestException("Collector authentication required. Invalid or missing collector token.")));
 
         return dataSourceList
             .<DataSourceList>handle((dsList, sink) -> {
